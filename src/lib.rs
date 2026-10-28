@@ -4,11 +4,11 @@
 
 use nih_plug::prelude::*;
 use std::sync::{Arc};
-use crate::params::GainParams;
+use crate::params::DrumParams;
 
 mod params;
 
-impl Default for GainParams {
+impl Default for DrumParams {
     fn default() -> Self {
         Self {
             attack: FloatParam::new(
@@ -25,7 +25,7 @@ impl Default for GainParams {
     }
 }
 
-impl Plugin for params::Gain {
+impl Plugin for params::Drum {
     const NAME: &'static str = "DrumGrid";
     const VENDOR: &'static str = "Daniel Hejduk";
     const URL: &'static str = "https://github.com/danielhejduk/drumgrid";
@@ -71,7 +71,7 @@ impl Plugin for params::Gain {
     fn deactivate(&mut self) {}
 }
 
-impl ClapPlugin for params::Gain {
+impl ClapPlugin for params::Drum {
     const CLAP_ID: &'static str = "tech.hejduk.drumgrid";
     const CLAP_DESCRIPTION: Option<&'static str> = Some("Making sounds out of drum samples");
     const CLAP_MANUAL_URL: Option<&'static str> = Some(Self::URL);
@@ -84,11 +84,11 @@ impl ClapPlugin for params::Gain {
     ];
 }
 
-impl Vst3Plugin for params::Gain {
+impl Vst3Plugin for params::Drum {
     const VST3_CLASS_ID: [u8; 16] = *b"DrumGridTechPlug";
     const VST3_SUBCATEGORIES: &'static [Vst3SubCategory] =
         &[Vst3SubCategory::Fx, Vst3SubCategory::Tools];
 }
 
-nih_export_clap!(params::Gain);
-nih_export_vst3!(params::Gain);
+nih_export_clap!(params::Drum);
+nih_export_vst3!(params::Drum);

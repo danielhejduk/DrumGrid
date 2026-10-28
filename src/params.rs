@@ -1,22 +1,22 @@
 use std::sync::{Arc};
 use nih_plug::prelude::*;
 
-pub struct Gain {
-    pub(crate) params: Arc<GainParams>,
+pub struct Drum {
+    pub(crate) params: Arc<DrumParams>,
 }
 
 #[derive(Params)]
-pub struct GainParams {
+pub struct DrumParams {
     #[id = "attack"]
     pub attack: FloatParam,
     #[id = "release"]
     pub release: FloatParam,
 }
 
-impl Default for Gain {
+impl Default for Drum {
     fn default() -> Self {
         Self {
-            params: Arc::new(GainParams::default()),
+            params: Arc::new(DrumParams::default()),
         }
     }
 }
