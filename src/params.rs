@@ -7,8 +7,10 @@ pub struct Gain {
 
 #[derive(Params)]
 pub struct GainParams {
-    #[id = "gain"]
-    pub gain: FloatParam,
+    #[id = "attack"]
+    pub attack: FloatParam,
+    #[id = "release"]
+    pub release: FloatParam,
 }
 
 impl Default for Gain {
