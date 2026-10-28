@@ -12,13 +12,13 @@ impl Default for GainParams {
     fn default() -> Self {
         Self {
             attack: FloatParam::new(
-                "Gain",
-                util::db_to_gain(0.0),
+                "Attack",
+                0.0,
                 FloatRange::Skewed { min: 0.0, max: 2.0, factor: FloatRange::skew_factor(-2.0) },
             ),
             release: FloatParam::new(
                 "Release",
-                util::db_to_gain(0.0),
+                0.0,
                 FloatRange::Skewed { min: 0.0, max: 2.0, factor: FloatRange::skew_factor(-2.0) },
             )
         }
