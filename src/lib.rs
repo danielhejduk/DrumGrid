@@ -1,51 +1,12 @@
+// Bugs in nih-plug
+#![allow(semicolon_in_expressions_from_macros)]
+#![allow(future_incompatible)]
+
 use nih_plug::prelude::*;
-use parking_lot::Mutex;
-use std::sync::Arc;
+use std::sync::{Arc};
+use crate::params::GainParams;
 
-struct Gain {
-    params: Arc<GainParams>,
-}
-
-#[derive(Params)]
-struct GainParams {
-    #[id = "gain"]
-    pub gain: FloatParam,
-
-    #[persist = "industry_secrets"]
-    pub random_data: Mutex<Vec<f32>>,
-
-    /// You can also nest parameter structs. These will appear as a separate nested group if your
-    /// DAW displays parameters in a tree structure.
-    #[nested(group = "Subparameters")]
-    pub sub_params: SubParams,
-
-    /// Nested parameters also support some advanced functionality for reusing the same parameter
-    /// struct multiple times.
-    #[nested(array, group = "Array Parameters")]
-    pub array_params: [ArrayParams; 3],
-}
-
-#[derive(Params)]
-struct SubParams {
-    #[id = "thing"]
-    pub nested_parameter: FloatParam,
-}
-
-#[derive(Params)]
-struct ArrayParams {
-    /// This parameter's ID will get a `_1`, `_2`, and a `_3` suffix because of how it's used in
-    /// `array_params` above.
-    #[id = "noope"]
-    pub nope: FloatParam,
-}
-
-impl Default for Gain {
-    fn default() -> Self {
-        Self {
-            params: Arc::new(GainParams::default()),
-        }
-    }
-}
+mod params;
 
 impl Default for GainParams {
     fn default() -> Self {
@@ -73,33 +34,11 @@ impl Default for GainParams {
             // `.with_step_size(0.1)` function to get internal rounding.
             .with_value_to_string(formatters::v2s_f32_gain_to_db(2))
             .with_string_to_value(formatters::s2v_f32_gain_to_db()),
-            // Persisted fields can be initialized like any other fields, and they'll keep their
-            // values when restoring the plugin's state.
-            random_data: Mutex::new(Vec::new()),
-            sub_params: SubParams {
-                nested_parameter: FloatParam::new(
-                    "Unused Nested Parameter",
-                    0.5,
-                    FloatRange::Skewed {
-                        min: 2.0,
-                        max: 2.4,
-                        factor: FloatRange::skew_factor(2.0),
-                    },
-                )
-                .with_value_to_string(formatters::v2s_f32_rounded(2)),
-            },
-            array_params: [1, 2, 3].map(|index| ArrayParams {
-                nope: FloatParam::new(
-                    format!("Nope {index}"),
-                    0.5,
-                    FloatRange::Linear { min: 1.0, max: 2.0 },
-                ),
-            }),
         }
     }
 }
 
-impl Plugin for Gain {
+impl Plugin for params::Gain {
     const NAME: &'static str = "DrumGrid";
     const VENDOR: &'static str = "Daniel Hejduk";
     // You can use `env!("CARGO_PKG_HOMEPAGE")` to reference the homepage field from the
@@ -180,7 +119,7 @@ impl Plugin for Gain {
     fn deactivate(&mut self) {}
 }
 
-impl ClapPlugin for Gain {
+impl ClapPlugin for params::Gain {
     const CLAP_ID: &'static str = "tech.hejduk.drumgrid";
     const CLAP_DESCRIPTION: Option<&'static str> = Some("Making sounds out of drum samples");
     const CLAP_MANUAL_URL: Option<&'static str> = Some(Self::URL);
@@ -193,11 +132,11 @@ impl ClapPlugin for Gain {
     ];
 }
 
-impl Vst3Plugin for Gain {
+impl Vst3Plugin for params::Gain {
     const VST3_CLASS_ID: [u8; 16] = *b"DrumGridTechPlug";
     const VST3_SUBCATEGORIES: &'static [Vst3SubCategory] =
         &[Vst3SubCategory::Fx, Vst3SubCategory::Tools];
 }
 
-nih_export_clap!(Gain);
-nih_export_vst3!(Gain);
+nih_export_clap!(params::Gain);
+nih_export_vst3!(params::Gain);
