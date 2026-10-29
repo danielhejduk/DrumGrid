@@ -7,6 +7,7 @@ use std::sync::{Arc};
 use crate::params::DrumParams;
 
 mod params;
+mod sound;
 
 impl Default for DrumParams {
     fn default() -> Self {
@@ -14,13 +15,15 @@ impl Default for DrumParams {
             attack: FloatParam::new(
                 "Attack",
                 0.0,
-                FloatRange::Skewed { min: 0.0, max: 2.0, factor: FloatRange::skew_factor(-2.0) },
-            ),
+                FloatRange::Skewed { min: 0.1, max: 1000.0, factor: FloatRange::skew_factor(-1.5) },
+            )
+                .with_value_to_string(formatters::v2s_f32_rounded(2)),
             release: FloatParam::new(
                 "Release",
                 0.0,
-                FloatRange::Skewed { min: 0.0, max: 2.0, factor: FloatRange::skew_factor(-2.0) },
+                FloatRange::Skewed { min: 0.1, max: 1000.0, factor: FloatRange::skew_factor(-1.5) },
             )
+                .with_value_to_string(formatters::v2s_f32_rounded(2))
         }
     }
 }
@@ -50,7 +53,7 @@ impl Plugin for params::Drum {
         },
     ];
 
-    const MIDI_INPUT: MidiConfig = MidiConfig::None;
+    const MIDI_INPUT: MidiConfig = MidiConfig::Basic;
     const SAMPLE_ACCURATE_AUTOMATION: bool = true;
     type SysExMessage = ();
     type BackgroundTask = ();
@@ -62,9 +65,39 @@ impl Plugin for params::Drum {
     fn process(
         &mut self,
         buffer: &mut Buffer,
-        _aux: &mut AuxiliaryBuffers,
-        _context: &mut impl ProcessContext<Self>,
+        aux: &mut AuxiliaryBuffers,
+        context: &mut impl ProcessContext<Self>,
     ) -> ProcessStatus {
+        let mut next_event = context.next_event();
+
+        for (sample_id, channel_samples) in buffer.iter_samples().enumerate() {
+            while let Some(event) = next_event {
+                if event.timing() > sample_id as u32 {
+                    break;
+                }
+                
+                match event {
+                    NoteEvent::NoteOn { velocity, ..} => {
+                        self.pos = 0;
+                        self.playing = true;
+                        self.velocity = velocity;
+                    }
+                    _ => (),
+                }
+                next_event = context.next_event();
+            }
+            let value = if self.playing && self.pos < self.sound.len() {
+                let v = self.sound[self.pos] * self.velocity;
+                self.pos += 1;
+                v
+            } else {
+                self.playing = false;
+                0.0
+            };
+            for sample in channel_samples {
+                *sample = value;
+            }
+        }
         ProcessStatus::Normal
     }
 
@@ -77,17 +110,15 @@ impl ClapPlugin for params::Drum {
     const CLAP_MANUAL_URL: Option<&'static str> = Some(Self::URL);
     const CLAP_SUPPORT_URL: Option<&'static str> = None;
     const CLAP_FEATURES: &'static [ClapFeature] = &[
-        ClapFeature::AudioEffect,
+        ClapFeature::Instrument,
         ClapFeature::Stereo,
-        ClapFeature::Mono,
-        ClapFeature::Utility,
     ];
 }
 
 impl Vst3Plugin for params::Drum {
     const VST3_CLASS_ID: [u8; 16] = *b"DrumGridTechPlug";
     const VST3_SUBCATEGORIES: &'static [Vst3SubCategory] =
-        &[Vst3SubCategory::Fx, Vst3SubCategory::Tools];
+        &[Vst3SubCategory::Instrument];
 }
 
 nih_export_clap!(params::Drum);
