@@ -32,7 +32,7 @@ impl Plugin for params::Drum {
     const NAME: &'static str = "DrumGrid";
     const VENDOR: &'static str = "Daniel Hejduk";
     const URL: &'static str = "https://github.com/danielhejduk/drumgrid";
-    const EMAIL: &'static str = "info@example.com";
+    const EMAIL: &'static str = "drumgrid@hejduk.tech";
 
     const VERSION: &'static str = env!("CARGO_PKG_VERSION");
 
