@@ -5,7 +5,7 @@ use crate::sound;
 
 pub struct Drum {
     pub params: Arc<DrumParams>,
-    pub sound: Vec<f32>,
+    pub sound: Vec<[f32; 2]>,
     pub pos: usize,
     pub playing: bool,
     pub velocity: f32,

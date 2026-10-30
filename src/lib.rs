@@ -38,16 +38,12 @@ impl Plugin for params::Drum {
 
     const AUDIO_IO_LAYOUTS: &'static [AudioIOLayout] = &[
         AudioIOLayout {
-            main_input_channels: NonZeroU32::new(2),
+            main_input_channels: None,
             main_output_channels: NonZeroU32::new(2),
-
-            aux_input_ports: &[],
-            aux_output_ports: &[],
-
-            names: PortNames::const_default(),
+            ..AudioIOLayout::const_default()
         },
         AudioIOLayout {
-            main_input_channels: NonZeroU32::new(1),
+            main_input_channels: None,
             main_output_channels: NonZeroU32::new(1),
             ..AudioIOLayout::const_default()
         },
@@ -65,7 +61,7 @@ impl Plugin for params::Drum {
     fn process(
         &mut self,
         buffer: &mut Buffer,
-        aux: &mut AuxiliaryBuffers,
+        _aux: &mut AuxiliaryBuffers,
         context: &mut impl ProcessContext<Self>,
     ) -> ProcessStatus {
         let mut next_event = context.next_event();
@@ -86,16 +82,17 @@ impl Plugin for params::Drum {
                 }
                 next_event = context.next_event();
             }
-            let value = if self.playing && self.pos < self.sound.len() {
-                let v = self.sound[self.pos] * self.velocity;
+            let frame = if self.playing && self.pos < self.sound.len() {
+                let f = self.sound[self.pos];
                 self.pos += 1;
-                v
+                [f[0] * self.velocity, f[1] * self.velocity]
             } else {
                 self.playing = false;
-                0.0
+                [0.0, 0.0]
             };
-            for sample in channel_samples {
-                *sample = value;
+            let channels = channel_samples.len();
+            for (ch, sample) in channel_samples.into_iter().enumerate() {
+                *sample = if channels == 1 { (frame[0] + frame[1]) * 0.5 } else { frame[ch.min(1)] };
             }
         }
         ProcessStatus::Normal
