@@ -12,6 +12,10 @@ pub struct Drum {
     pub playing: bool,
     pub velocity: f32,
     pub env: f32,
+
+    pub last_gain: f32,
+    pub fade_pos: f64,
+    pub fade_gain: f32,
 }
 
 #[derive(Params)]

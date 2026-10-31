@@ -28,6 +28,16 @@ impl Default for DrumParams {
     }
 }
 
+fn read_frame(sound: &[[f32; 2]], pos: f64) -> Option<[f32; 2]> {
+    let idx = pos as usize;
+    if idx + 1 >= sound.len() {
+        return None;
+    }
+    let frac = (pos - idx as f64) as f32;
+    let (a, b) = (sound[idx], sound[idx + 1]);
+    Some([a[0] + (b[0] - a[0]) * frac, a[1] + (b[1] - a[1]) * frac])
+}
+
 impl Plugin for params::Drum {
     const NAME: &'static str = "DrumGrid";
     const VENDOR: &'static str = "Daniel Hejduk";
@@ -79,6 +89,7 @@ impl Plugin for params::Drum {
 
         let step = self.sound_rate as f64 / self.host_rate as f64;
         let samples_per_ms = self.host_rate / 1000.0;
+        let fade_dec = 1.0 / (2.0 * samples_per_ms);
 
         for (sample_id, channel_samples) in buffer.iter_samples().enumerate() {
             while let Some(event) = next_event {
@@ -87,6 +98,10 @@ impl Plugin for params::Drum {
                 }
                 
                 if let Some(NoteEvent::NoteOn { velocity, ..}) = next_event {
+                    if self.playing {
+                        self.fade_pos = self.pos;
+                        self.fade_gain = self.last_gain;
+                    }
                     self.pos = 0.0;
                     self.env = 0.0;
                     self.playing = true;
