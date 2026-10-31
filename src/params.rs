@@ -38,6 +38,10 @@ impl Default for Drum {
             playing: false,
             velocity: 0.0,
             env: 0.0,
+
+            last_gain: 0.0,
+            fade_pos: 0.0,
+            fade_gain: 0.0,
         }
     }
 }

@@ -149,6 +149,8 @@ impl ClapPlugin for params::Drum {
     const CLAP_FEATURES: &'static [ClapFeature] = &[
         ClapFeature::Instrument,
         ClapFeature::Stereo,
+        ClapFeature::Mono,
+        ClapFeature::Drum,
     ];
 }
 
