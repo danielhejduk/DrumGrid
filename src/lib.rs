@@ -1,6 +1,4 @@
-// Bugs in nih-plug
 #![allow(semicolon_in_expressions_from_macros)]
-#![allow(future_incompatible)]
 
 use nih_plug::prelude::*;
 use std::sync::{Arc};
