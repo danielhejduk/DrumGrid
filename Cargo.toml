@@ -9,6 +9,10 @@ members = ["xtask"]
 [lib]
 crate-type = ["cdylib"]
 
+[profile.release]
+lto = "thin"
+strip = true
+
 [dependencies]
 hound = "3.5.1"
 nih_plug = { git = "https://github.com/robbert-vdh/nih-plug.git", features = ["assert_process_allocs"] }
