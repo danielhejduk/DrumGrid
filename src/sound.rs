@@ -1,5 +1,5 @@
 /// Loads the sample as stereo frames. Mono files are duplicated to both channels.
-pub(crate) fn load_wav() -> Vec<[f32; 2]> {
+pub(crate) fn load_wav() -> (Vec<[f32; 2]>, f32) {
     let bytes = include_bytes!("../sounds/click.wav");
     let mut reader = hound::WavReader::new(std::io::Cursor::new(bytes)).unwrap();
     let spec = reader.spec();
@@ -15,8 +15,9 @@ pub(crate) fn load_wav() -> Vec<[f32; 2]> {
     };
 
     let channels = spec.channels as usize;
-    samples
+    let frames = samples
         .chunks_exact(channels)
         .map(|frame| if channels == 1 { [frame[0], frame[0]] } else { [frame[0], frame[1]] })
-        .collect()
+        .collect();
+    (frames, spec.sample_rate as f32)
 }

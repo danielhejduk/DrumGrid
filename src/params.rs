@@ -6,9 +6,12 @@ use crate::sound;
 pub struct Drum {
     pub params: Arc<DrumParams>,
     pub sound: Vec<[f32; 2]>,
-    pub pos: usize,
+    pub sound_rate: f32,
+    pub host_rate: f32,
+    pub pos: f64,
     pub playing: bool,
     pub velocity: f32,
+    pub env: f32,
 }
 
 #[derive(Params)]
@@ -21,12 +24,16 @@ pub struct DrumParams {
 
 impl Default for Drum {
     fn default() -> Self {
+        let (sound, sound_rate) = sound::load_wav();
         Self {
             params: Arc::new(DrumParams::default()),
-            sound: sound::load_wav(),
-            pos: 0,
+            sound,
+            sound_rate,
+            host_rate: sound_rate,
+            pos: 0.0,
             playing: false,
             velocity: 0.0,
+            env: 0.0,
         }
     }
 }

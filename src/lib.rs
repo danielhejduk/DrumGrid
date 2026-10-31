@@ -14,13 +14,13 @@ impl Default for DrumParams {
         Self {
             attack: FloatParam::new(
                 "Attack",
-                0.0,
+                10.0,
                 FloatRange::Skewed { min: 0.1, max: 1000.0, factor: FloatRange::skew_factor(-1.5) },
             )
                 .with_value_to_string(formatters::v2s_f32_rounded(2)),
             release: FloatParam::new(
                 "Release",
-                0.0,
+                10.0,
                 FloatRange::Skewed { min: 0.1, max: 1000.0, factor: FloatRange::skew_factor(-1.5) },
             )
                 .with_value_to_string(formatters::v2s_f32_rounded(2))
@@ -58,6 +58,17 @@ impl Plugin for params::Drum {
         self.params.clone()
     }
 
+    fn initialize(
+        &mut self,
+        _audio_io_layout: &AudioIOLayout,
+        buffer_config: &BufferConfig,
+        _context: &mut impl InitContext<Self>,
+    ) -> bool
+    {
+        self.host_rate = buffer_config.sample_rate;
+        true
+    }
+
     fn process(
         &mut self,
         buffer: &mut Buffer,
@@ -66,26 +77,40 @@ impl Plugin for params::Drum {
     ) -> ProcessStatus {
         let mut next_event = context.next_event();
 
+        let step = self.sound_rate as f64 / self.host_rate as f64;
+        let samples_per_ms = self.host_rate / 1000.0;
+
         for (sample_id, channel_samples) in buffer.iter_samples().enumerate() {
             while let Some(event) = next_event {
                 if event.timing() > sample_id as u32 {
                     break;
                 }
                 
-                match event {
-                    NoteEvent::NoteOn { velocity, ..} => {
-                        self.pos = 0;
-                        self.playing = true;
-                        self.velocity = velocity;
-                    }
-                    _ => (),
+                if let Some(NoteEvent::NoteOn { velocity, ..}) = next_event {
+                    self.pos = 0.0;
+                    self.env = 0.0;
+                    self.playing = true;
+                    self.velocity = velocity;
                 }
                 next_event = context.next_event();
             }
-            let frame = if self.playing && self.pos < self.sound.len() {
-                let f = self.sound[self.pos];
-                self.pos += 1;
-                [f[0] * self.velocity, f[1] * self.velocity]
+            let idx = self.pos as usize;
+            let frame = if self.playing && idx + 1 < self.sound.len() {
+                let frac = (self.pos - idx as f64) as f32;
+                let a = self.sound[idx];
+                let b = self.sound[idx + 1];
+                let f = [a[0] + (b[0] - a[0]) * frac, a[1] + (b[1] - a[1]) * frac];
+
+                let attack_samples = (self.params.attack.value() * samples_per_ms).max(1.0);
+                self.env = (self.env + 1.0 / attack_samples).min(1.0);
+                let release_samples = (self.params.release.value() * samples_per_ms).max(1.0);
+                let remaining = ((self.sound.len() - 1) as f64 - self.pos) / step;
+                let release_gain = (remaining as f32 / release_samples).min(1.0);
+
+                self.pos += step;
+
+                let gain = self.velocity * self.env * release_gain;
+                [f[0] * gain, f[1] * gain]
             } else {
                 self.playing = false;
                 [0.0, 0.0]
