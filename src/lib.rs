@@ -1,42 +1,49 @@
 #![allow(semicolon_in_expressions_from_macros)]
 
 use nih_plug::prelude::*;
-use std::sync::{Arc};
-use crate::params::DrumParams;
+use std::path::Path;
+use std::sync::Arc;
 
+use crate::params::Drum;
+use crate::voice::VoiceParams;
+
+mod editor;
 mod params;
 mod sound;
+mod voice;
 
-impl Default for DrumParams {
-    fn default() -> Self {
-        Self {
-            attack: FloatParam::new(
-                "Attack",
-                10.0,
-                FloatRange::Skewed { min: 0.1, max: 1000.0, factor: FloatRange::skew_factor(-1.5) },
-            )
-                .with_value_to_string(formatters::v2s_f32_rounded(2)),
-            release: FloatParam::new(
-                "Release",
-                10.0,
-                FloatRange::Skewed { min: 0.1, max: 1000.0, factor: FloatRange::skew_factor(-1.5) },
-            )
-                .with_value_to_string(formatters::v2s_f32_rounded(2))
+impl Drum {
+    fn note_on(&mut self, note: u8, velocity: f32, vp: &VoiceParams) {
+        let idx = self
+            .voices
+            .iter()
+            .position(|v| v.active && v.note == note)
+            .or_else(|| self.voices.iter().position(|v| !v.active))
+            // All busy: steal the quietest voice, preferring released ones.
+            .unwrap_or_else(|| {
+                (0..self.voices.len())
+                    .min_by(|&a, &b| {
+                        let key = |i: usize| (!self.voices[i].releasing, self.voices[i].env);
+                        key(a).partial_cmp(&key(b)).unwrap()
+                    })
+                    .unwrap()
+            });
+        self.voices[idx].start(note, velocity, &self.sample, vp);
+    }
+
+    fn voice_params(&self) -> VoiceParams {
+        VoiceParams {
+            host_rate: self.host_rate,
+            attack_ms: self.params.attack.value(),
+            release_ms: self.params.release.value(),
+            start_ms: self.params.start.value(),
+            grain: self.params.grain.value(),
+            speed: self.params.speed.value(),
         }
     }
 }
 
-fn read_frame(sound: &[[f32; 2]], pos: f64) -> Option<[f32; 2]> {
-    let idx = pos as usize;
-    if idx + 1 >= sound.len() {
-        return None;
-    }
-    let frac = (pos - idx as f64) as f32;
-    let (a, b) = (sound[idx], sound[idx + 1]);
-    Some([a[0] + (b[0] - a[0]) * frac, a[1] + (b[1] - a[1]) * frac])
-}
-
-impl Plugin for params::Drum {
+impl Plugin for Drum {
     const NAME: &'static str = "DrumGrid";
     const VENDOR: &'static str = "Daniel Hejduk";
     const URL: &'static str = "https://github.com/danielhejduk/drumgrid";
@@ -66,15 +73,37 @@ impl Plugin for params::Drum {
         self.params.clone()
     }
 
+    fn editor(&mut self, _async_executor: AsyncExecutor<Self>) -> Option<Box<dyn Editor>> {
+        editor::create(self.params.clone(), self.slot.clone())
+    }
+
     fn initialize(
         &mut self,
         _audio_io_layout: &AudioIOLayout,
         buffer_config: &BufferConfig,
         _context: &mut impl InitContext<Self>,
-    ) -> bool
-    {
+    ) -> bool {
         self.host_rate = buffer_config.sample_rate;
+
+        // Runs after a saved project is restored, so reload the user's sample here.
+        let path = self.params.sample_path.read().clone();
+        if !path.is_empty() {
+            let path = Path::new(&path);
+            let (sample, name) = match sound::load_file(path) {
+                Ok(s) => (s, path.file_name().unwrap_or_default().to_string_lossy().into_owned()),
+                Err(e) => {
+                    nih_log!("Couldn't load {}: {e}; using the built-in sample", path.display());
+                    (sound::load_embedded(), sound::EMBEDDED_NAME.to_owned())
+                }
+            };
+            self.sample = sample;
+            *self.slot.name.lock() = name;
+        }
         true
+    }
+
+    fn reset(&mut self) {
+        self.voices.iter_mut().for_each(|v| v.stop());
     }
 
     fn process(
@@ -83,67 +112,39 @@ impl Plugin for params::Drum {
         _aux: &mut AuxiliaryBuffers,
         context: &mut impl ProcessContext<Self>,
     ) -> ProcessStatus {
+        self.slot.try_swap(&mut self.sample);
         let mut next_event = context.next_event();
 
-        let step = self.sound_rate as f64 / self.host_rate as f64;
-        let samples_per_ms = self.host_rate / 1000.0;
-        let fade_dec = 1.0 / (2.0 * samples_per_ms);
-
         for (sample_id, channel_samples) in buffer.iter_samples().enumerate() {
+            let vp = self.voice_params();
+
             while let Some(event) = next_event {
                 if event.timing() > sample_id as u32 {
                     break;
                 }
-                
-                if let Some(NoteEvent::NoteOn { velocity, ..}) = next_event {
-                    if self.playing {
-                        self.fade_pos = self.pos;
-                        self.fade_gain = self.last_gain;
+                match event {
+                    NoteEvent::NoteOn { note, velocity, .. } => self.note_on(note, velocity, &vp),
+                    NoteEvent::NoteOff { note, .. } => {
+                        self.voices.iter_mut().filter(|v| v.active && v.note == note).for_each(|v| v.release())
                     }
-                    self.pos = 0.0;
-                    self.env = 0.0;
-                    self.playing = true;
-                    self.velocity = velocity;
+                    NoteEvent::Choke { note, .. } => {
+                        self.voices.iter_mut().filter(|v| v.note == note).for_each(|v| v.stop())
+                    }
+                    _ => {}
                 }
                 next_event = context.next_event();
             }
-            let mut frame = [0.0f32; 2];
 
-            if self.playing {
-                if let Some(f) = read_frame(&self.sound, self.pos) {
-                    let attack_samples = (self.params.attack.value() * samples_per_ms).max(1.0);
-                    self.env = (self.env + 1.0 / attack_samples).min(1.0);
-                    let release_samples = (self.params.release.value() * samples_per_ms).max(1.0);
-                    let remaining = ((self.sound.len() - 1) as f64 - self.pos) / step;
-                    let release_gain = (remaining as f32 / release_samples).min(1.0);
-
-                    self.pos += step;
-
-                    let gain = self.velocity * self.env * release_gain;
-                    self.last_gain = gain;
-                    frame = [f[0] * gain, f[1] * gain];
-                } else {
-                    self.playing = false;
-                    self.last_gain = 0.0;
-                }
-            }
-
-            // Fade out the interrupted voice so a retrigger doesn't cut it off abruptly.
-            if self.fade_gain > 0.0 {
-                match read_frame(&self.sound, self.fade_pos) {
-                    Some(f) => {
-                        frame[0] += f[0] * self.fade_gain;
-                        frame[1] += f[1] * self.fade_gain;
-                        self.fade_pos += step;
-                        self.fade_gain = (self.fade_gain - fade_dec).max(0.0);
-                    }
-                    None => self.fade_gain = 0.0,
-                }
-            }
+            let frame = self.voices.iter_mut().fold([0.0f32; 2], |acc, v| {
+                let out = v.next(&self.sample, &vp);
+                [acc[0] + out[0], acc[1] + out[1]]
+            });
+            let gain = self.params.gain.smoothed.next();
 
             let channels = channel_samples.len();
             for (ch, sample) in channel_samples.into_iter().enumerate() {
-                *sample = if channels == 1 { (frame[0] + frame[1]) * 0.5 } else { frame[ch.min(1)] };
+                let s = if channels == 1 { (frame[0] + frame[1]) * 0.5 } else { frame[ch.min(1)] };
+                *sample = s * gain;
             }
         }
         ProcessStatus::Normal
@@ -152,24 +153,25 @@ impl Plugin for params::Drum {
     fn deactivate(&mut self) {}
 }
 
-impl ClapPlugin for params::Drum {
+impl ClapPlugin for Drum {
     const CLAP_ID: &'static str = "tech.hejduk.drumgrid";
-    const CLAP_DESCRIPTION: Option<&'static str> = Some("Making sounds out of drum samples");
+    const CLAP_DESCRIPTION: Option<&'static str> =
+        Some("Turns any sample into a playable tone by retriggering it at the note's frequency");
     const CLAP_MANUAL_URL: Option<&'static str> = Some(Self::URL);
     const CLAP_SUPPORT_URL: Option<&'static str> = None;
     const CLAP_FEATURES: &'static [ClapFeature] = &[
         ClapFeature::Instrument,
+        ClapFeature::Synthesizer,
         ClapFeature::Stereo,
         ClapFeature::Mono,
-        ClapFeature::Drum,
     ];
 }
 
-impl Vst3Plugin for params::Drum {
+impl Vst3Plugin for Drum {
     const VST3_CLASS_ID: [u8; 16] = *b"DrumGridTechPlug";
     const VST3_SUBCATEGORIES: &'static [Vst3SubCategory] =
-        &[Vst3SubCategory::Instrument];
+        &[Vst3SubCategory::Instrument, Vst3SubCategory::Synth];
 }
 
-nih_export_clap!(params::Drum);
-nih_export_vst3!(params::Drum);
+nih_export_clap!(Drum);
+nih_export_vst3!(Drum);
