@@ -109,27 +109,40 @@ impl Plugin for params::Drum {
                 }
                 next_event = context.next_event();
             }
-            let idx = self.pos as usize;
-            let frame = if self.playing && idx + 1 < self.sound.len() {
-                let frac = (self.pos - idx as f64) as f32;
-                let a = self.sound[idx];
-                let b = self.sound[idx + 1];
-                let f = [a[0] + (b[0] - a[0]) * frac, a[1] + (b[1] - a[1]) * frac];
+            let mut frame = [0.0f32; 2];
 
-                let attack_samples = (self.params.attack.value() * samples_per_ms).max(1.0);
-                self.env = (self.env + 1.0 / attack_samples).min(1.0);
-                let release_samples = (self.params.release.value() * samples_per_ms).max(1.0);
-                let remaining = ((self.sound.len() - 1) as f64 - self.pos) / step;
-                let release_gain = (remaining as f32 / release_samples).min(1.0);
+            if self.playing {
+                if let Some(f) = read_frame(&self.sound, self.pos) {
+                    let attack_samples = (self.params.attack.value() * samples_per_ms).max(1.0);
+                    self.env = (self.env + 1.0 / attack_samples).min(1.0);
+                    let release_samples = (self.params.release.value() * samples_per_ms).max(1.0);
+                    let remaining = ((self.sound.len() - 1) as f64 - self.pos) / step;
+                    let release_gain = (remaining as f32 / release_samples).min(1.0);
 
-                self.pos += step;
+                    self.pos += step;
 
-                let gain = self.velocity * self.env * release_gain;
-                [f[0] * gain, f[1] * gain]
-            } else {
-                self.playing = false;
-                [0.0, 0.0]
-            };
+                    let gain = self.velocity * self.env * release_gain;
+                    self.last_gain = gain;
+                    frame = [f[0] * gain, f[1] * gain];
+                } else {
+                    self.playing = false;
+                    self.last_gain = 0.0;
+                }
+            }
+
+            // Fade out the interrupted voice so a retrigger doesn't cut it off abruptly.
+            if self.fade_gain > 0.0 {
+                match read_frame(&self.sound, self.fade_pos) {
+                    Some(f) => {
+                        frame[0] += f[0] * self.fade_gain;
+                        frame[1] += f[1] * self.fade_gain;
+                        self.fade_pos += step;
+                        self.fade_gain = (self.fade_gain - fade_dec).max(0.0);
+                    }
+                    None => self.fade_gain = 0.0,
+                }
+            }
+
             let channels = channel_samples.len();
             for (ch, sample) in channel_samples.into_iter().enumerate() {
                 *sample = if channels == 1 { (frame[0] + frame[1]) * 0.5 } else { frame[ch.min(1)] };
