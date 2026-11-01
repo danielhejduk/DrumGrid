@@ -14,6 +14,7 @@ pub struct Drum {
     pub slot: Arc<SampleSlot>,
     pub host_rate: f32,
     pub voices: [Voice; NUM_VOICES],
+    pub bend: f32,
 }
 
 #[derive(Params)]
@@ -48,6 +49,12 @@ pub struct DrumParams {
     pub grain: FloatParam,
     #[id = "speed"]
     pub speed: FloatParam,
+    #[id = "tune"]
+    pub tune: IntParam,
+    #[id = "fine"]
+    pub fine: FloatParam,
+    #[id = "bend-range"]
+    pub bend_range: IntParam,
 }
 
 #[derive(Enum, Debug, PartialEq, Eq, Clone, Copy)]
@@ -83,7 +90,7 @@ impl Default for DrumParams {
     fn default() -> Self {
         Self {
             sample_path: Arc::new(RwLock::new(String::new())),
-            editor_state: EguiState::from_size(420, 420),
+            editor_state: EguiState::from_size(440, 580),
             sample_data: Arc::new(RwLock::new(String::new())),
 
             gain: FloatParam::new(
@@ -131,6 +138,12 @@ impl Default for DrumParams {
             .with_smoother(SmoothingStyle::Logarithmic(50.0))
             .with_unit("x")
             .with_value_to_string(formatters::v2s_f32_rounded(2)),
+            tune: IntParam::new("Tune", 0, IntRange::Linear { min: -24, max: 24 }).with_unit(" st"),
+            fine: FloatParam::new("Fine", 0.0, FloatRange::Linear { min: -100.0, max: 100.0 })
+                .with_smoother(SmoothingStyle::Linear(20.0))
+                .with_unit(" ct")
+                .with_value_to_string(formatters::v2s_f32_rounded(1)),
+            bend_range: IntParam::new("Bend Range", 2, IntRange::Linear { min: 0, max: 24 }).with_unit(" st"),
         }
     }
 }
@@ -141,9 +154,10 @@ impl Default for Drum {
         Self {
             params: Arc::new(DrumParams::default()),
             host_rate: sample.rate,
+            slot: Arc::new(SampleSlot::new(sound::EMBEDDED_NAME, &sample)),
             sample,
-            slot: Arc::new(SampleSlot::new(sound::EMBEDDED_NAME)),
             voices: [Voice::default(); NUM_VOICES],
+            bend: 0.0,
         }
     }
 }

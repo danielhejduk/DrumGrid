@@ -43,6 +43,9 @@ impl Drum {
             jitter: self.params.jitter.value(),
             grain: self.params.grain.value(),
             speed: self.params.speed.smoothed.next(),
+            pitch: self.params.tune.value() as f32
+                + self.params.fine.smoothed.next() / 100.0
+                + self.bend * self.params.bend_range.value() as f32,
         }
     }
 }
@@ -93,28 +96,34 @@ impl Plugin for Drum {
         // The embedded copy wins; the path is only a fallback for files too large to embed.
         let path = self.params.sample_path.read().clone();
         let data = self.params.sample_data.read().clone();
-        if !path.is_empty() || !data.is_empty() {
+        let (sample, name) = if path.is_empty() && data.is_empty() {
+            (sound::load_embedded(), sound::EMBEDDED_NAME.to_owned())
+        } else {
             let path = Path::new(&path);
             let loaded = if data.is_empty() {
                 sound::load_file(path).map_err(|e| e.to_string())
             } else {
                 sound::load_embedded_data(&data)
             };
-            let (sample, name) = match loaded {
-                Ok(s) => (s, path.file_name().unwrap_or_default().to_string_lossy().into_owned()),
+            match loaded {
+                Ok(s) => {
+                    let name = path.file_name().map(|n| n.to_string_lossy().into_owned());
+                    (s, name.unwrap_or_else(|| "Embedded sample".to_owned()))
+                }
                 Err(e) => {
                     nih_log!("Couldn't load {}: {e}; using the built-in sample", path.display());
                     (sound::load_embedded(), sound::EMBEDDED_NAME.to_owned())
                 }
-            };
-            self.sample = sample;
-            *self.slot.name.lock() = name;
-        }
+            }
+        };
+        self.sample = sample;
+        self.slot.describe(name, &self.sample);
         true
     }
 
     fn reset(&mut self) {
         self.voices.iter_mut().for_each(|v| v.stop());
+        self.bend = 0.0;
     }
 
     fn process(
@@ -143,6 +152,12 @@ impl Plugin for Drum {
                     NoteEvent::Choke { note, .. } => {
                         self.voices.iter_mut().filter(|v| v.note == note).for_each(|v| v.stop())
                     }
+                    NoteEvent::MidiPitchBend { value, ..} => self.bend = (value * 2.0 - 1.0).clamp(-1.0, 1.0),
+                    NoteEvent::PolyTuning { note, tuning, .. } => self
+                        .voices
+                        .iter_mut()
+                        .filter(|v| v.active && v.note == note)
+                        .for_each(|v| v.set_tuning(tuning)),
                     _ => {}
                 }
                 next_event = context.next_event();

@@ -18,6 +18,7 @@ pub struct VoiceParams {
     /// Fraction of each cycle (0..=1) that sounds.
     pub grain: f32,
     pub speed: f32,
+    pub pitch: f32,
 }
 
 /// One held note: restarts the sample `freq` times a second, turning it into a pitched tone.
@@ -30,6 +31,10 @@ pub struct Voice {
     velocity: f32,
     /// Cycle length in host samples.
     period: f32,
+    /// Per-note tuning in semitones, from CLAP/VST3 note expressions.
+    tuning: f32,
+    /// Total pitch offset `period` was computed for.
+    offset: f32,
     /// Host samples since the cycle started.
     phase: f32,
     /// Read position in sample frames.
@@ -61,6 +66,10 @@ fn region(sample: &Sample, p: &VoiceParams) -> (f64, f64, f64) {
     (start, start.min(end), start.max(end))
 }
 
+fn period_for(note: u8, offset: f32, host_rate: f32) -> f32 {
+    (host_rate / util::f32_midi_note_to_freq(note as f32 + offset)).max(1.0)
+}
+
 fn xfade_len(period: f32) -> f32 {
     (period * 0.25).clamp(1.0, MAX_XFADE)
 }
@@ -74,7 +83,8 @@ impl Voice {
             active: true,
             note,
             velocity,
-            period: (p.host_rate / util::midi_note_to_freq(note)).max(1.0),
+            period: period_for(note, p.pitch, p.host_rate),
+            offset: p.pitch,
             pos: region(sample, p).0,
             fade_pos: self.fade_pos,
             fade_gain: self.fade_gain,
@@ -116,6 +126,18 @@ impl Voice {
             }
         }
         self.travel = x - start;
+    }
+
+    pub fn set_tuning(&mut self, semitones: f32) {
+        self.tuning = semitones;
+    }
+
+    fn retune(&mut self, p: &VoiceParams) {
+        let offset = p.pitch + self.tuning;
+        if offset != self.offset {
+            self.offset = offset;
+            self.period = period_for(self.note, offset, p.host_rate);
+        }
     }
 
     pub fn release(&mut self) {
@@ -160,6 +182,7 @@ impl Voice {
             self.env = (self.env + 1.0 / (p.attack_ms * samples_per_ms).max(1.0)).min(1.0);
         }
 
+        self.retune(p);
         self.advance_scan(sample, p, step);
 
         // Fade in at the cycle start; fade out at the end of a shortened grain.
@@ -214,6 +237,7 @@ mod tests {
             jitter: 0.0,
             grain: 1.0,
             speed: 1.0,
+            pitch: 0.0,
         }
     }
 
@@ -241,20 +265,43 @@ mod tests {
         assert_eq!(read_frame(&s, 2.0), None);
     }
 
-    #[test]
-    fn a4_repeats_at_440_hz() {
-        let (s, p) = (noise_sample(), params());
-        let mut v = Voice::default();
-        v.start(69, 1.0, &s, &p);
-        let out = &render(&mut v, &s, &p, 9600)[1000..];
-
+    fn best_lag(out: &[f32], lags: std::ops::Range<usize>) -> usize {
         let corr = |lag: usize| -> f32 {
             let (a, b) = (&out[..out.len() - lag], &out[lag..]);
             let dot = |x: &[f32], y: &[f32]| x.iter().zip(y).map(|(x, y)| x * y).sum::<f32>();
             dot(a, b) / (dot(a, a) * dot(b, b)).sqrt()
         };
-        let best = (40..400).max_by(|&a, &b| corr(a).total_cmp(&corr(b))).unwrap();
+        lags.max_by(|&a, &b| corr(a).total_cmp(&corr(b))).unwrap()
+    }
+
+    #[test]
+    fn a4_repeats_at_440_hz() {
+        let (s, p) = (noise_sample(), params());
+        let mut v = Voice::default();
+        v.start(69, 1.0, &s, &p);
+        let best = best_lag(&render(&mut v, &s, &p, 9600)[1000..], 40..200);
         assert!((best as f32 - RATE / 440.0).abs() <= 1.0, "best lag {best}");
+    }
+
+    #[test]
+    fn pitch_offset_retunes_a_held_note() {
+        let s = noise_sample();
+        let mut v = Voice::default();
+        v.start(69, 1.0, &s, &params());
+        render(&mut v, &s, &params(), 2000);
+
+        // Bending up an octave mid-note: A4 becomes A5.
+        let up = VoiceParams { pitch: 12.0, ..params() };
+        let best = best_lag(&render(&mut v, &s, &up, 9600)[1000..], 30..100);
+        assert!((v.period - RATE / 880.0).abs() < 1e-3, "period {}", v.period);
+        assert!((best as f32 - RATE / 880.0).abs() <= 1.0, "best lag {best}");
+
+        // Per-note tuning stacks on top: down a fifth from A5 is D5.
+        v.set_tuning(-7.0);
+        let best = best_lag(&render(&mut v, &s, &up, 9600)[1000..], 30..150);
+        let d5 = util::f32_midi_note_to_freq(74.0);
+        assert!((v.period - RATE / d5).abs() < 1e-3, "period {}", v.period);
+        assert!((best as f32 - RATE / d5).abs() <= 1.0, "best lag {best}");
     }
 
     #[test]
