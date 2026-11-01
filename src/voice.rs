@@ -1,3 +1,4 @@
+use crate::params::ScanMode;
 use crate::sound::Sample;
 use nih_plug::util;
 
@@ -9,7 +10,11 @@ pub struct VoiceParams {
     pub host_rate: f32,
     pub attack_ms: f32,
     pub release_ms: f32,
-    pub start_ms: f32,
+    pub start: f32,
+    pub end: f32,
+    pub scan: f32,
+    pub scan_mode: ScanMode,
+    pub jitter: f32,
     /// Fraction of each cycle (0..=1) that sounds.
     pub grain: f32,
     pub speed: f32,
@@ -34,6 +39,9 @@ pub struct Voice {
     fade_pos: f64,
     fade_gain: f32,
     fade_dec: f32,
+    travel: f64,
+    dir: f64,
+    rng: u32,
 }
 
 pub fn read_frame(sound: &[[f32; 2]], pos: f64) -> Option<[f32; 2]> {
@@ -46,8 +54,11 @@ pub fn read_frame(sound: &[[f32; 2]], pos: f64) -> Option<[f32; 2]> {
     Some([a[0] + (b[0] - a[0]) * frac, a[1] + (b[1] - a[1]) * frac])
 }
 
-fn start_frames(sample: &Sample, p: &VoiceParams) -> f64 {
-    (p.start_ms / 1000.0 * sample.rate) as f64
+fn region(sample: &Sample, p: &VoiceParams) -> (f64, f64, f64) {
+    let len = sample.frames.len() as f64;
+    let start = p.start.clamp(0.0, 1.0) as f64 * len;
+    let end = p.end.clamp(0.0, 1.0) as f64 * len;
+    (start, start.min(end), start.max(end))
 }
 
 fn xfade_len(period: f32) -> f32 {
@@ -64,12 +75,47 @@ impl Voice {
             note,
             velocity,
             period: (p.host_rate / util::midi_note_to_freq(note)).max(1.0),
-            pos: start_frames(sample, p),
+            pos: region(sample, p).0,
             fade_pos: self.fade_pos,
             fade_gain: self.fade_gain,
             fade_dec: self.fade_dec,
+            dir: 1.0,
+            rng: self.rng ^ (note as u32).wrapping_mul(0x9E37_79B9),
             ..Self::default()
         };
+    }
+
+    fn next_rand(&mut self) -> f32 {
+        self.rng = self.rng.wrapping_mul(1_644_525).wrapping_add(1_013_904_223);
+        (self.rng >> 8) as f32 / (1u32 << 23) as f32 - 1.0
+    }
+
+    fn advance_scan(&mut self, sample: &Sample, p: &VoiceParams, step: f64) {
+        let (start, lo, mut hi) = region(sample, p);
+        if hi - lo < 1.0 {
+            self.travel = 0.0;
+            return;
+        }
+        if p.scan_mode == ScanMode::Hold {
+            hi = (hi - self.period as f64 * step).max(lo);
+        }
+
+        let scan = p.scan as f64;
+        let mut x = start + self.travel + scan * (sample.rate / p.host_rate) as f64 * self.dir;
+        if x < lo || x > hi {
+            let width = hi - lo;
+            x = match p.scan_mode {
+                ScanMode::Hold => x.clamp(lo, hi),
+                ScanMode::Loop if width > 0.0 => lo + (x - lo).rem_euclid(width),
+                ScanMode::Loop => lo,
+                ScanMode::PingPong => {
+                    let (edge, inward) = if x > hi { (hi, -1.0) } else { (lo, 1.0) };
+                    self.dir = inward * scan.signum();
+                    (2.0 * edge - x).clamp(lo, hi)
+                }
+            }
+        }
+        self.travel = x - start;
     }
 
     pub fn release(&mut self) {
@@ -114,6 +160,8 @@ impl Voice {
             self.env = (self.env + 1.0 / (p.attack_ms * samples_per_ms).max(1.0)).min(1.0);
         }
 
+        self.advance_scan(sample, p, step);
+
         // Fade in at the cycle start; fade out at the end of a shortened grain.
         let mut window = ((self.phase + 1.0) / xfade_len(self.period)).min(1.0);
         if p.grain < 0.999 {
@@ -136,8 +184,13 @@ impl Voice {
         if self.phase >= self.period {
             self.phase -= self.period;
             self.begin_fade();
-            // Keep the fractional phase so non-integer periods stay in tune.
-            self.pos = start_frames(sample, p) + self.phase as f64 * step;
+            let jitter = if p.jitter > 0.0 {
+                self.next_rand() as f64 * p.jitter as f64 * self.period as f64 * step
+            } else {
+                0.0
+            };
+            let (start, ..) = region(sample, p);
+            self.pos = (start + self.travel + jitter).max(0.0) + self.phase as f64 * step;
         }
         out
     }
@@ -150,7 +203,18 @@ mod tests {
     const RATE: f32 = 48_000.0;
 
     fn params() -> VoiceParams {
-        VoiceParams { host_rate: RATE, attack_ms: 1.0, release_ms: 10.0, start_ms: 0.0, grain: 1.0, speed: 1.0 }
+        VoiceParams {
+            host_rate: RATE,
+            attack_ms: 1.0,
+            release_ms: 10.0,
+            start: 0.0,
+            end: 1.0,
+            scan: 0.0,
+            scan_mode: ScanMode::Loop,
+            jitter: 0.0,
+            grain: 1.0,
+            speed: 1.0,
+        }
     }
 
     /// Decaying pseudo-random noise standing in for a drum hit.
@@ -212,5 +276,87 @@ mod tests {
         v.release();
         render(&mut v, &s, &p, 500);
         assert!(!v.active);
+    }
+
+    fn scan_positions(v: &mut Voice, s: &Sample, p: &VoiceParams, n: usize) -> Vec<f64> {
+        let start = region(s, p).0;
+        (0..n)
+        .map(|_| {
+                v.next(s, p);
+                start + v.travel
+            })
+            .collect()
+    }
+    
+    #[test]
+    fn scan_at_100_percent_moves_one_second_per_second() {
+        let (s, p) = (noise_sample(), VoiceParams { scan: 1.0, ..params() });
+        let mut v = Voice::default();
+        v.start(60, 1.0, &s, &p);
+        render(&mut v, &s, &p, 24_000);
+        assert!((v.travel - 24_000.0).abs() < 1.0, "travel {}", v.travel);
+    }
+
+    #[test]
+    fn loop_stays_inside_region() {
+        let (s, p) = (noise_sample(), VoiceParams { start: 0.1, end: 0.2, scan: 2.0, ..params() });
+        let (_, lo, hi) = region(&s, &p);
+        let mut v = Voice::default();
+        v.start(60, 1.0, &s, &p);
+        let xs = scan_positions(&mut v, &s, &p, 96_000);
+        assert!(xs.iter().all(|x| (lo..=hi).contains(x)));
+        // Each step either advances by the scan rate or wraps back to the region start.
+        let width = hi - lo;
+        assert!(xs.windows(2).all(|w| {
+            let d = w[1] - w[0];
+            (d - 2.0).abs() < 1e-6 || (d - (2.0 - width)).abs() < 1e-6
+        }));
+        assert!(xs.windows(2).any(|w| w[1] < w[0]), "never wrapped");
+    }
+
+    #[test]
+    fn ping_pong_reverses() {
+        let (s, p) =
+            (noise_sample(), VoiceParams { start: 0.1, end: 0.2, scan: 2.0, scan_mode: ScanMode::PingPong, ..params() });
+        let (_, lo, hi) = region(&s, &p);
+        let mut v = Voice::default();
+        v.start(60, 1.0, &s, &p);
+        let xs = scan_positions(&mut v, &s, &p, 96_000);
+        assert!(xs.iter().all(|x| (lo..=hi).contains(x)));
+        // No jumps: the position only ever moves by the scan rate.
+        assert!(xs.windows(2).all(|w| (w[1] - w[0]).abs() <= 2.0 + 1e-6));
+        assert!(xs.windows(2).any(|w| w[1] < w[0]), "never reversed");
+    }
+
+    #[test]
+    fn hold_stops_one_cycle_before_end() {
+        let (s, p) =
+            (noise_sample(), VoiceParams { start: 0.1, end: 0.2, scan: 2.0, scan_mode: ScanMode::Hold, ..params() });
+        let (_, _, hi) = region(&s, &p);
+        let mut v = Voice::default();
+        v.start(60, 1.0, &s, &p);
+        let xs = scan_positions(&mut v, &s, &p, 96_000);
+        let held = hi - v.period as f64;
+        assert!((xs[xs.len() - 1] - held).abs() < 1e-6, "ended at {}", xs[xs.len() - 1]);
+        assert_eq!(xs[xs.len() - 1], xs[xs.len() / 2]);
+    }
+
+    #[test]
+    fn jitter_changes_the_output_and_never_reads_before_the_sample() {
+        let s = noise_sample();
+        let run = |jitter: f32| {
+            let p = VoiceParams { jitter, ..params() };
+            let mut v = Voice::default();
+            v.start(57, 1.0, &s, &p);
+            (0..20_000)
+                .map(|_| {
+                    let out = v.next(&s, &p)[0];
+                    assert!(v.pos >= 0.0);
+                    out
+                })
+                .collect::<Vec<_>>()
+        };
+        assert_eq!(run(0.0), run(0.0));
+        assert_ne!(run(0.0), run(0.5));
     }
 }

@@ -36,9 +36,13 @@ impl Drum {
             host_rate: self.host_rate,
             attack_ms: self.params.attack.value(),
             release_ms: self.params.release.value(),
-            start_ms: self.params.start.value(),
+            start: self.params.start.value(),
+            end: self.params.end.value(),
+            scan: self.params.scan.value(),
+            scan_mode: self.params.scan_mode.value(),
+            jitter: self.params.jitter.value(),
             grain: self.params.grain.value(),
-            speed: self.params.speed.value(),
+            speed: self.params.speed.smoothed.next(),
         }
     }
 }

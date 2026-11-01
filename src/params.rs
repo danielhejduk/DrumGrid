@@ -1,5 +1,6 @@
 use nih_plug::prelude::*;
 use nih_plug_egui::EguiState;
+use nih_plug_egui::egui::emath::Float;
 use parking_lot::RwLock;
 use std::sync::Arc;
 
@@ -34,12 +35,35 @@ pub struct DrumParams {
     pub attack: FloatParam,
     #[id = "release"]
     pub release: FloatParam,
-    #[id = "start"]
+    #[id = "start-pct"]
     pub start: FloatParam,
+    #[id = "end"]
+    pub end: FloatParam,
+    #[id = "scan"]
+    pub scan: FloatParam,
+    #[id = "scan-mode"]
+    pub scan_mode: EnumParam<ScanMode>,
+    #[id = "jitter"]
+    pub jitter: FloatParam,
     #[id = "grain"]
     pub grain: FloatParam,
     #[id = "speed"]
     pub speed: FloatParam,
+}
+
+#[derive(Enum, Debug, PartialEq, Eq, Clone, Copy)]
+pub enum ScanMode {
+    Hold,
+    Loop,
+    #[name = "Ping-pong"]
+    PingPong,
+}
+
+fn pct_param(name: &str, default: f32, range: FloatRange) -> FloatParam {
+    FloatParam::new(name, default, range)
+    .with_unit("%")
+    .with_value_to_string(formatters::v2s_f32_percentage(1))
+    .with_string_to_value(formatters::s2v_f32_percentage())
 }
 
 fn ms_param(name: &str, default: f32, min: f32, max: f32, skew: f32) -> FloatParam {
@@ -52,7 +76,7 @@ impl Default for DrumParams {
     fn default() -> Self {
         Self {
             sample_path: Arc::new(RwLock::new(String::new())),
-            editor_state: EguiState::from_size(420, 320),
+            editor_state: EguiState::from_size(420, 420),
             sample_data: Arc::new(RwLock::new(String::new())),
 
             gain: FloatParam::new(
@@ -70,7 +94,20 @@ impl Default for DrumParams {
             .with_string_to_value(formatters::s2v_f32_gain_to_db()),
             attack: ms_param("Attack", 10.0, 0.1, 1000.0, -1.5),
             release: ms_param("Release", 100.0, 0.1, 1000.0, -1.5),
-            start: ms_param("Start", 0.0, 0.0, 500.0, -1.0),
+            start: pct_param("Start", 0.0, FloatRange::Linear { min: 0.0, max: 1.0 }),
+            end: pct_param("End", 1.0, FloatRange::Linear { min: 0.0, max: 1.0 }),
+            scan: pct_param(
+                "Scan",
+                0.0,
+                FloatRange::SymmetricalSkewed { min: 
+                    -2.0,
+                    max: 2.0,
+                    factor: FloatRange::skew_factor(-1.0),
+                    center: 0.0 
+                }
+            ),
+            scan_mode: EnumParam::new("Scan Mode", ScanMode::Loop),
+            jitter: pct_param("Jitter", 0.0, FloatRange::Linear { min: 0.0, max: 1.0 }),
             grain: FloatParam::new("Grain", 1.0, FloatRange::Linear { min: 0.05, max: 1.0 })
                 .with_unit("%")
                 .with_value_to_string(formatters::v2s_f32_percentage(0))
