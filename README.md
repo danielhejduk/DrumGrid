@@ -1,5 +1,6 @@
 # DrumGrid
 ![](images/drumgrid.png)
+## Description
 An open-source CLAP/VST3 plugin for your DAW that turns any sample into a playable tone by retriggering it at the note's frequency.
 ## Building
 You need a stable rust toolchain installed, after that run this command:
