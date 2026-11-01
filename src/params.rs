@@ -1,6 +1,5 @@
 use nih_plug::prelude::*;
 use nih_plug_egui::EguiState;
-use nih_plug_egui::egui::emath::Float;
 use parking_lot::RwLock;
 use std::sync::Arc;
 
@@ -61,15 +60,23 @@ pub enum ScanMode {
 
 fn pct_param(name: &str, default: f32, range: FloatRange) -> FloatParam {
     FloatParam::new(name, default, range)
-    .with_unit("%")
-    .with_value_to_string(formatters::v2s_f32_percentage(1))
-    .with_string_to_value(formatters::s2v_f32_percentage())
+        .with_unit("%")
+        .with_value_to_string(formatters::v2s_f32_percentage(1))
+        .with_string_to_value(formatters::s2v_f32_percentage())
 }
 
 fn ms_param(name: &str, default: f32, min: f32, max: f32, skew: f32) -> FloatParam {
-    FloatParam::new(name, default, FloatRange::Skewed { min, max, factor: FloatRange::skew_factor(skew) })
-        .with_unit(" ms")
-        .with_value_to_string(formatters::v2s_f32_rounded(2))
+    FloatParam::new(
+        name,
+        default,
+        FloatRange::Skewed {
+            min,
+            max,
+            factor: FloatRange::skew_factor(skew),
+        },
+    )
+    .with_unit(" ms")
+    .with_value_to_string(formatters::v2s_f32_rounded(2))
 }
 
 impl Default for DrumParams {
@@ -99,12 +106,12 @@ impl Default for DrumParams {
             scan: pct_param(
                 "Scan",
                 0.0,
-                FloatRange::SymmetricalSkewed { min: 
-                    -2.0,
+                FloatRange::SymmetricalSkewed {
+                    min: -2.0,
                     max: 2.0,
                     factor: FloatRange::skew_factor(-1.0),
-                    center: 0.0 
-                }
+                    center: 0.0,
+                },
             ),
             scan_mode: EnumParam::new("Scan Mode", ScanMode::Loop),
             jitter: pct_param("Jitter", 0.0, FloatRange::Linear { min: 0.0, max: 1.0 }),
@@ -115,7 +122,11 @@ impl Default for DrumParams {
             speed: FloatParam::new(
                 "Speed",
                 1.0,
-                FloatRange::Skewed { min: 0.25, max: 4.0, factor: FloatRange::gain_skew_factor(-12.04, 12.04) },
+                FloatRange::Skewed {
+                    min: 0.25,
+                    max: 4.0,
+                    factor: FloatRange::gain_skew_factor(-12.04, 12.04),
+                },
             )
             .with_smoother(SmoothingStyle::Logarithmic(50.0))
             .with_unit("x")

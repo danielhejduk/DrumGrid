@@ -22,7 +22,10 @@ pub fn decode_wav<R: Read>(reader: R) -> Result<Sample, hound::Error> {
         hound::SampleFormat::Float => reader.samples::<f32>().collect::<Result<_, _>>()?,
         hound::SampleFormat::Int => {
             let max = (1i64 << (spec.bits_per_sample - 1)) as f32;
-            reader.samples::<i32>().map(|s| s.map(|s| s as f32 / max)).collect::<Result<_, _>>()?
+            reader
+                .samples::<i32>()
+                .map(|s| s.map(|s| s as f32 / max))
+                .collect::<Result<_, _>>()?
         }
     };
 
@@ -31,7 +34,10 @@ pub fn decode_wav<R: Read>(reader: R) -> Result<Sample, hound::Error> {
         .chunks_exact(channels)
         .map(|f| if channels == 1 { [f[0], f[0]] } else { [f[0], f[1]] })
         .collect();
-    Ok(Sample { frames, rate: spec.sample_rate as f32 })
+    Ok(Sample {
+        frames,
+        rate: spec.sample_rate as f32,
+    })
 }
 
 pub fn load_embedded() -> Sample {
@@ -45,7 +51,9 @@ pub fn load_file(path: &Path) -> Result<Sample, hound::Error> {
 /// Decodes a sample embedded in the project state as base64 WAV bytes.
 pub fn load_embedded_data(data: &str) -> Result<Sample, String> {
     use base64::Engine;
-    let bytes = base64::engine::general_purpose::STANDARD.decode(data).map_err(|e| e.to_string())?;
+    let bytes = base64::engine::general_purpose::STANDARD
+        .decode(data)
+        .map_err(|e| e.to_string())?;
     decode_wav(std::io::Cursor::new(bytes)).map_err(|e| e.to_string())
 }
 
@@ -60,7 +68,11 @@ pub struct SampleSlot {
 
 impl SampleSlot {
     pub fn new(name: &str) -> Self {
-        Self { pending: Mutex::new(None), ready: AtomicBool::new(false), name: Mutex::new(name.to_owned()) }
+        Self {
+            pending: Mutex::new(None),
+            ready: AtomicBool::new(false),
+            name: Mutex::new(name.to_owned()),
+        }
     }
 
     /// GUI thread.
@@ -98,8 +110,17 @@ mod tests {
     #[test]
     fn slot_swaps_once() {
         let slot = SampleSlot::new("a");
-        let mut current = Sample { frames: vec![[0.0; 2]; 4], rate: 1.0 };
-        slot.offer(Sample { frames: vec![[1.0; 2]; 8], rate: 2.0 }, "b".into());
+        let mut current = Sample {
+            frames: vec![[0.0; 2]; 4],
+            rate: 1.0,
+        };
+        slot.offer(
+            Sample {
+                frames: vec![[1.0; 2]; 8],
+                rate: 2.0,
+            },
+            "b".into(),
+        );
         slot.try_swap(&mut current);
         slot.try_swap(&mut current);
         assert_eq!(current.frames.len(), 8);

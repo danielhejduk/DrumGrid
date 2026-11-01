@@ -135,9 +135,11 @@ impl Plugin for Drum {
                 }
                 match event {
                     NoteEvent::NoteOn { note, velocity, .. } => self.note_on(note, velocity, &vp),
-                    NoteEvent::NoteOff { note, .. } => {
-                        self.voices.iter_mut().filter(|v| v.active && v.note == note).for_each(|v| v.release())
-                    }
+                    NoteEvent::NoteOff { note, .. } => self
+                        .voices
+                        .iter_mut()
+                        .filter(|v| v.active && v.note == note)
+                        .for_each(|v| v.release()),
                     NoteEvent::Choke { note, .. } => {
                         self.voices.iter_mut().filter(|v| v.note == note).for_each(|v| v.stop())
                     }
@@ -154,7 +156,11 @@ impl Plugin for Drum {
 
             let channels = channel_samples.len();
             for (ch, sample) in channel_samples.into_iter().enumerate() {
-                let s = if channels == 1 { (frame[0] + frame[1]) * 0.5 } else { frame[ch.min(1)] };
+                let s = if channels == 1 {
+                    (frame[0] + frame[1]) * 0.5
+                } else {
+                    frame[ch.min(1)]
+                };
                 *sample = s * gain;
             }
         }
@@ -180,8 +186,7 @@ impl ClapPlugin for Drum {
 
 impl Vst3Plugin for Drum {
     const VST3_CLASS_ID: [u8; 16] = *b"DrumGridTechPlug";
-    const VST3_SUBCATEGORIES: &'static [Vst3SubCategory] =
-        &[Vst3SubCategory::Instrument, Vst3SubCategory::Synth];
+    const VST3_SUBCATEGORIES: &'static [Vst3SubCategory] = &[Vst3SubCategory::Instrument, Vst3SubCategory::Synth];
 }
 
 nih_export_clap!(Drum);

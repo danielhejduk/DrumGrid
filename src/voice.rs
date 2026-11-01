@@ -281,13 +281,13 @@ mod tests {
     fn scan_positions(v: &mut Voice, s: &Sample, p: &VoiceParams, n: usize) -> Vec<f64> {
         let start = region(s, p).0;
         (0..n)
-        .map(|_| {
+            .map(|_| {
                 v.next(s, p);
                 start + v.travel
             })
             .collect()
     }
-    
+
     #[test]
     fn scan_at_100_percent_moves_one_second_per_second() {
         let (s, p) = (noise_sample(), VoiceParams { scan: 1.0, ..params() });
@@ -299,7 +299,15 @@ mod tests {
 
     #[test]
     fn loop_stays_inside_region() {
-        let (s, p) = (noise_sample(), VoiceParams { start: 0.1, end: 0.2, scan: 2.0, ..params() });
+        let (s, p) = (
+            noise_sample(),
+            VoiceParams {
+                start: 0.1,
+                end: 0.2,
+                scan: 2.0,
+                ..params()
+            },
+        );
         let (_, lo, hi) = region(&s, &p);
         let mut v = Voice::default();
         v.start(60, 1.0, &s, &p);
@@ -316,8 +324,16 @@ mod tests {
 
     #[test]
     fn ping_pong_reverses() {
-        let (s, p) =
-            (noise_sample(), VoiceParams { start: 0.1, end: 0.2, scan: 2.0, scan_mode: ScanMode::PingPong, ..params() });
+        let (s, p) = (
+            noise_sample(),
+            VoiceParams {
+                start: 0.1,
+                end: 0.2,
+                scan: 2.0,
+                scan_mode: ScanMode::PingPong,
+                ..params()
+            },
+        );
         let (_, lo, hi) = region(&s, &p);
         let mut v = Voice::default();
         v.start(60, 1.0, &s, &p);
@@ -330,8 +346,16 @@ mod tests {
 
     #[test]
     fn hold_stops_one_cycle_before_end() {
-        let (s, p) =
-            (noise_sample(), VoiceParams { start: 0.1, end: 0.2, scan: 2.0, scan_mode: ScanMode::Hold, ..params() });
+        let (s, p) = (
+            noise_sample(),
+            VoiceParams {
+                start: 0.1,
+                end: 0.2,
+                scan: 2.0,
+                scan_mode: ScanMode::Hold,
+                ..params()
+            },
+        );
         let (_, _, hi) = region(&s, &p);
         let mut v = Voice::default();
         v.start(60, 1.0, &s, &p);
