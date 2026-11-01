@@ -2,9 +2,11 @@ name: Rust
 
 on:
   push:
-    branches: [ "main" ]
+    branches: ["main"]
+    tags: ["v*"]
   pull_request:
-    branches: [ "main" ]
+    branches: ["main"]
+  workflow_dispatch:
 
 env:
   CARGO_TERM_COLOR: always
@@ -14,7 +16,63 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - name: Build
-        run: cargo build --verbose
+
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            libasound2-dev \
+            libgl-dev \
+            libjack-dev \
+            libx11-dev \
+            libx11-xcb-dev \
+            libxcb1-dev \
+            libxcb-dri2-0-dev \
+            libxcb-icccm4-dev \
+            libxcb-shape0-dev \
+            libxcb-xfixes0-dev \
+            libxcursor-dev \
+            libxkbcommon-dev
+
+      - uses: Swatinem/rust-cache@v2
+
       - name: Run tests
-        run: cargo test --verbose
+        run: cargo test --workspace
+
+      - name: Bundle plugin
+        run: cargo xtask bundle drumgrid --release
+
+      - name: Package bundles
+        id: package
+        run: |
+          if [[ "$GITHUB_REF_TYPE" == "tag" ]]; then
+            version="$GITHUB_REF_NAME"
+          else
+            version="${GITHUB_SHA::7}"
+          fi
+          archive="drumgrid-${version}-linux-x86_64.zip"
+          (cd target/bundled && zip -r "../../${archive}" drumgrid.clap drumgrid.vst3)
+          echo "archive=${archive}" >> "$GITHUB_OUTPUT"
+
+      - name: Upload bundle artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: drumgrid-linux-x86_64
+          path: ${{ steps.package.outputs.archive }}
+
+  release:
+    if: github.ref_type == 'tag'
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: drumgrid-linux-x86_64
+
+      - name: Publish GitHub release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: drumgrid-*.zip
+          generate_release_notes: true
