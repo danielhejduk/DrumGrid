@@ -80,6 +80,7 @@ impl Default for DrumParams {
                 1.0,
                 FloatRange::Skewed { min: 0.25, max: 4.0, factor: FloatRange::gain_skew_factor(-12.04, 12.04) },
             )
+            .with_smoother(SmoothingStyle::Logarithmic(50.0))
             .with_unit("x")
             .with_value_to_string(formatters::v2s_f32_rounded(2)),
         }
