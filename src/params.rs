@@ -23,6 +23,10 @@ pub struct DrumParams {
     pub sample_path: Arc<RwLock<String>>,
     #[persist = "editor-state"]
     pub editor_state: Arc<EguiState>,
+    /// Base64 of the original file, so projects survive the file moving. Empty when the
+    /// sample is built-in or larger than `sound::MAX_EMBED_BYTES`.
+    #[persist = "sample-data"]
+    pub sample_data: Arc<RwLock<String>>,
 
     #[id = "gain"]
     pub gain: FloatParam,
@@ -49,6 +53,7 @@ impl Default for DrumParams {
         Self {
             sample_path: Arc::new(RwLock::new(String::new())),
             editor_state: EguiState::from_size(420, 320),
+            sample_data: Arc::new(RwLock::new(String::new())),
 
             gain: FloatParam::new(
                 "Gain",

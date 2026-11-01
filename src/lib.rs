@@ -86,10 +86,17 @@ impl Plugin for Drum {
         self.host_rate = buffer_config.sample_rate;
 
         // Runs after a saved project is restored, so reload the user's sample here.
+        // The embedded copy wins; the path is only a fallback for files too large to embed.
         let path = self.params.sample_path.read().clone();
-        if !path.is_empty() {
+        let data = self.params.sample_data.read().clone();
+        if !path.is_empty() || !data.is_empty() {
             let path = Path::new(&path);
-            let (sample, name) = match sound::load_file(path) {
+            let loaded = if data.is_empty() {
+                sound::load_file(path).map_err(|e| e.to_string())
+            } else {
+                sound::load_embedded_data(&data)
+            };
+            let (sample, name) = match loaded {
                 Ok(s) => (s, path.file_name().unwrap_or_default().to_string_lossy().into_owned()),
                 Err(e) => {
                     nih_log!("Couldn't load {}: {e}; using the built-in sample", path.display());

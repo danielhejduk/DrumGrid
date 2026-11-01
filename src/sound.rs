@@ -5,6 +5,9 @@ use std::sync::atomic::{AtomicBool, Ordering};
 
 pub const EMBEDDED_NAME: &str = "click.wav (built-in)";
 
+/// Files above this size are saved by path only, to keep project files reasonable.
+pub const MAX_EMBED_BYTES: usize = 16 * 1024 * 1024;
+
 pub struct Sample {
     pub frames: Vec<[f32; 2]>,
     pub rate: f32,
@@ -37,6 +40,13 @@ pub fn load_embedded() -> Sample {
 
 pub fn load_file(path: &Path) -> Result<Sample, hound::Error> {
     decode_wav(std::io::BufReader::new(std::fs::File::open(path)?))
+}
+
+/// Decodes a sample embedded in the project state as base64 WAV bytes.
+pub fn load_embedded_data(data: &str) -> Result<Sample, String> {
+    use base64::Engine;
+    let bytes = base64::engine::general_purpose::STANDARD.decode(data).map_err(|e| e.to_string())?;
+    decode_wav(std::io::Cursor::new(bytes)).map_err(|e| e.to_string())
 }
 
 /// Passes samples loaded in the GUI to the audio thread. The audio thread swaps the pending

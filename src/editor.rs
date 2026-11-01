@@ -42,9 +42,18 @@ pub fn create(params: Arc<DrumParams>, slot: Arc<SampleSlot>) -> Option<Box<dyn 
 }
 
 fn load(path: &Path, params: &DrumParams, slot: &SampleSlot) -> Result<(), String> {
-    let sample = sound::load_file(path).map_err(|e| format!("Couldn't load {}: {e}", path.display()))?;
+    use base64::Engine;
+    let err = |e: &dyn std::fmt::Display| format!("Couldn't load {}: {e}", path.display());
+    let bytes = std::fs::read(path).map_err(|e| err(&e))?;
+    let sample = sound::decode_wav(std::io::Cursor::new(&bytes)).map_err(|e| err(&e))?;
+    let data = if bytes.len() <= sound::MAX_EMBED_BYTES {
+        base64::engine::general_purpose::STANDARD.encode(&bytes)
+    } else {
+        String::new()
+    };
     let name = path.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
     slot.offer(sample, name);
     *params.sample_path.write() = path.to_string_lossy().into_owned();
+    *params.sample_data.write() = data;
     Ok(())
 }

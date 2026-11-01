@@ -19,3 +19,4 @@ nih_plug = { git = "https://github.com/robbert-vdh/nih-plug.git", features = ["a
 parking_lot = "0.12"
 nih_plug_egui = { git = "https://github.com/robbert-vdh/nih-plug.git", rev = "de421011f41a6d10fc8c7a6084e4f4dee0143683" }
 rfd = "0.14"
+base64 = "0.23.1"
